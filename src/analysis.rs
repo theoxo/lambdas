@@ -73,10 +73,13 @@ impl Analysis for ExprCost {
             Node::Prim(p) => *analyzed.shared.cost_prim.get(p).unwrap_or(&analyzed.shared.cost_prim_default),
             Node::App(f, x) => {
                 analyzed.shared.cost_app + analyzed.nodes[*f] + analyzed.nodes[*x] 
-            }
+            },
             Node::Lam(b) => {
                 analyzed.shared.cost_lam + analyzed.nodes[*b]
-            }
+            },
+            Node::LoopChoice(_, b) => {
+                analyzed.shared.cost_loop_choice + analyzed.nodes[*b]
+            },
         }
     }
 }
@@ -94,6 +97,9 @@ impl Analysis for &ExprCost {
             Node::Lam(b) => {
                 analyzed.shared.cost_lam + analyzed.nodes[*b]
             }
+            Node::LoopChoice(_, b) => {
+                analyzed.shared.cost_loop_choice + analyzed.nodes[*b]
+            },
         }
     }
 }
@@ -114,6 +120,9 @@ impl Analysis for DepthAnalysis {
             Node::Lam(b) => {
                 1 + analyzed.nodes[*b]
             }
+            Node::LoopChoice(_, b) => {
+                1 + analyzed.nodes[*b]
+            },
         }
     }
 }
@@ -140,6 +149,12 @@ impl Analysis for FreeVarAnalysis {
                     .map(|i| i - 1)
                 );
             }
+            Node::LoopChoice(_, b) => {
+                free.extend(analyzed[*b].iter()
+                    .filter(|i| **i > 0)    
+                    .map(|i| i - 1)
+                );
+            },
         }
         free
     }
@@ -162,6 +177,9 @@ impl Analysis for IVarAnalysis {
                 free.extend(analyzed[*x].iter());
             }
             Node::Lam(b) => {
+                free.extend(analyzed[*b].iter());
+            }
+            Node::LoopChoice(_, b) => {
                 free.extend(analyzed[*b].iter());
             }
         }

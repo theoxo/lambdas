@@ -232,6 +232,7 @@ impl<'a, D: Domain> Evaluator<'a,D> {
             Node::Lam(b) => {
                 Val::LamClosure(*b, env.clone())
             }
+            Node::LoopChoice(_, _) => unreachable!()
         };
         Ok(val)
     }

@@ -26,6 +26,7 @@ pub enum Node where
     IVar(i32), // abstraction ("invention") variable
     App(Idx,Idx), // f, x
     Lam(Idx), // body
+    LoopChoice(i32,Idx), // parent node, body
 }
 
 /// An untyped lambda calculus expression or set of expressions
@@ -85,6 +86,7 @@ impl ExprOwned {
                 Node::Prim(p) => *cost_fn.cost_prim.get(p).unwrap_or(&cost_fn.cost_prim_default),
                 Node::App(_, _) => cost_fn.cost_app,
                 Node::Lam(_) => cost_fn.cost_lam,
+                Node::LoopChoice(_, _) => cost_fn.cost_loop_choice,
             }).sum::<i32>()
     }
     pub fn depth(&self) -> usize {
@@ -146,6 +148,7 @@ impl ExprSet {
             let span = match node {
                 Node::Var(_) | Node::Prim(_) | Node::IVar(_) => idx .. idx+1,
                 Node::App(f, x) => min(min(spans[f].start,spans[x].start),idx) .. max(max(spans[f].end,spans[x].end),idx+1),
+                Node::LoopChoice(_, _) => unimplemented!(),
                 Node::Lam(b) => min(spans[b].start,idx) .. max(spans[b].end,idx+1)
             };
             spans.push(span);
@@ -214,7 +217,8 @@ impl<'a> Expr<'a> {
         match self.node() {
             Node::Var(_) | Node::Prim(_) | Node::IVar(_) => vec![].into_iter(),
             Node::App(f, x) => vec![*f, *x].into_iter(),
-            Node::Lam(b) => vec![*b].into_iter()
+            Node::Lam(b) => vec![*b].into_iter(),
+            Node::LoopChoice(_, b) => vec![*b].into_iter(),
         }
     }
     /// assuming this is an App, get the subexpression to the left
@@ -260,6 +264,7 @@ impl<'a> Expr<'a> {
                 Node::Prim(p) => *cost_fn.cost_prim.get(p).unwrap_or(&cost_fn.cost_prim_default),
                 Node::App(_, _) => cost_fn.cost_app,
                 Node::Lam(_) => cost_fn.cost_lam,
+                Node::LoopChoice(_, _) => cost_fn.cost_loop_choice,
             }).sum::<i32>();
         debug_assert_eq!(res, self.cost_rec(cost_fn));
         res
@@ -275,10 +280,11 @@ impl<'a> Expr<'a> {
             Node::Prim(p) => *cost_fn.cost_prim.get(p).unwrap_or(&cost_fn.cost_prim_default),
             Node::App(f, x) => {
                 cost_fn.cost_app + self.get(*f).cost_rec(cost_fn) + self.get(*x).cost_rec(cost_fn)
-            }
+            },
             Node::Lam(b) => {
                 cost_fn.cost_lam + self.get(*b).cost_rec(cost_fn)
-            }
+            },
+            Node::LoopChoice(_, b) => cost_fn.cost_loop_choice + self.get(*b).cost_rec(cost_fn),
         }
     }
 
@@ -293,6 +299,7 @@ impl<'a> Expr<'a> {
                 Node::Prim(_) | Node::Var(_) | Node::IVar(_) => node.clone(),
                 Node::App(f, x) => Node::App((*f as i32 + shift) as usize, (*x as i32 + shift) as usize),
                 Node::Lam(b) => Node::Lam((*b as i32 + shift) as usize),
+                Node::LoopChoice(_, _) => unimplemented!(),
             }
         }));
 
@@ -344,6 +351,10 @@ impl<'a> Expr<'a> {
                     let b = helper(e.get(*b), other_set);
                     other_set.add(Node::Lam(b))
                 }
+                Node::LoopChoice(p, b) => {
+                    let b = helper(e.get(*b), other_set);
+                    other_set.add(Node::LoopChoice(*p, b))
+                }
             }
         }
 
@@ -360,6 +371,11 @@ impl<'a> Expr<'a> {
                 Order::Any => *f != self.idx && *x != self.idx,
             },
             Node::Lam(b) => match self.set.order {
+                Order::ChildFirst => *b == HOLE || *b < self.idx,
+                Order::ParentFirst => *b == HOLE || *b > self.idx,
+                Order::Any => *b != self.idx,
+            },
+            Node::LoopChoice(_, b) => match self.set.order {
                 Order::ChildFirst => *b == HOLE || *b < self.idx,
                 Order::ParentFirst => *b == HOLE || *b > self.idx,
                 Order::Any => *b != self.idx,
@@ -493,6 +509,11 @@ impl<'a> ExprMut<'a> {
                 let b = self.get(b).shift(incr_by, init_depth+1, analyzed_free_vars);
                 self.set.add(Node::Lam(b))
             },
+            Node::LoopChoice(p, b) => {
+                // TODO do we need to shift the pointer to the root of the loop?
+                let b = self.get(b).shift(incr_by, init_depth+1, analyzed_free_vars);
+                self.set.add(Node::LoopChoice(p, b))
+            }
         }
     }
 }
@@ -526,6 +547,7 @@ impl<'a> ExprMut<'a> {
 pub struct ExprCost {
     pub cost_lam: i32,
     pub cost_app: i32,
+    pub cost_loop_choice: i32,
     pub cost_var: i32,
     pub cost_ivar: i32,
     pub cost_prim: HashMap<Symbol,i32>,
@@ -537,6 +559,7 @@ impl ExprCost {
         ExprCost {
             cost_lam: 1,
             cost_app: 1,
+            cost_loop_choice: 1,
             cost_var: 100,
             cost_ivar: 100,
             cost_prim: HashMap::new(),
@@ -547,6 +570,7 @@ impl ExprCost {
         ExprCost {
             cost_lam: 0,
             cost_app: 0,
+            cost_loop_choice: 1,
             cost_var: 1,
             cost_ivar: 1,
             cost_prim: HashMap::new(),
@@ -557,6 +581,7 @@ impl ExprCost {
         ExprCost {
             cost_lam: 1,
             cost_app: 1,
+            cost_loop_choice: 1,
             cost_var: 1,
             cost_ivar: 1,
             cost_prim: HashMap::new(),

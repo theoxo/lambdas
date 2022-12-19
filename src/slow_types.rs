@@ -426,6 +426,7 @@ impl<'a> Expr<'a> {
             Node::Prim(p) => {
                 Ok(dsl.type_of_prim(p).instantiate(ctx))
             },
+            Node::LoopChoice(_, _) => { unimplemented!(); }
         }
     }
     // pub fn infer_ref<D: Domain>(&self, ctx: &mut TypeSet, env: &mut VecDeque<TypeRef>) -> Result<TypeRef,UnifyErr> {

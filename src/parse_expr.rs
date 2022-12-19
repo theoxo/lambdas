@@ -21,6 +21,7 @@ impl Display for Node {
             Self::App(_,_) => write!(f,"app"),
             Self::Lam(_) => write!(f,"lam"),
             Self::IVar(i) => write!(f,"#{}",i),
+            Self::LoopChoice(p, _) => write!(f, "loop {}", p),
         }
     }
 }
@@ -46,6 +47,11 @@ impl<'a> Display for Expr<'a> {
                     write!(f,"(lam ")?;
                     fmt_local(e.get(*b), false, f)?;
                     write!(f,")")
+                }
+                Node::LoopChoice(p, b) => {
+                    write!(f, "(loop {} ", p)?;
+                    fmt_local(e.get(*b), false, f)?;
+                    write!(f, ")")
                 }
             }
         }
